@@ -1,8 +1,17 @@
+import streamlit as st  # ✅ 가장 위에 있어야 함
+st.set_page_config(  # ✅ Streamlit 관련 첫 번째 명령어여야 함
+    page_title="올리브영 상품 크롤러",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+
+
 import subprocess
 import sys
 import asyncio
 import pandas as pd
-import streamlit as st
 import time
 import re
 from urllib.parse import quote
@@ -14,12 +23,6 @@ from PIL import Image
 import requests
 import webbrowser
 
-# 페이지 설정
-st.set_page_config(
-    page_title="올리브영 상품 크롤러",
-    page_icon="🛍️",
-    layout="wide",
-    initial_sidebar_state="expanded"
 
 # 라이브러리 설치 확인
 try:

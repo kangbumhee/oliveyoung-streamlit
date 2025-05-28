@@ -27,6 +27,78 @@ except ImportError:
     PLOTLY_AVAILABLE = False
     st.warning("📊 그래프 기능을 사용할 수 없습니다. plotly가 설치되지 않았습니다.")
 
+# 모의 데이터 생성 함수
+def generate_mock_data(keywords, num_products=10):
+    """크롤링이 안 될 때 사용할 모의 데이터 생성"""
+    import random
+    
+    brands = ['아이오페', '라네즈', '헤라', '설화수', '후', '더샘', '토니모리', '에튜드', '미샤', '네이처리퍼블릭', 
+              '이니스프리', '스킨푸드', '더페이스샵', '올리브영', '아리따움', '에이프릴스킨', '시원팩트', '센텔리안24']
+    
+    product_types = {
+        '토너': ['토너', '토닝 로션', '스킨 토너', '밸런싱 토너', '수분 토너'],
+        '세럼': ['세럼', '에센스', '앰플', '부스터 세럼', '집중케어 세럼'],
+        '선크림': ['선크림', '선블록', 'SPF 크림', 'UV 차단크림', '자외선 차단제'],
+        '클렌징': ['클렌징폼', '클렌징오일', '클렌저', '세안제', '메이크업 리무버'],
+        '마스크': ['마스크팩', '시트마스크', '슬리핑마스크', '클레이마스크', '필오프마스크']
+    }
+    
+    benefits = ['온라인특가', '1+1', '증정', '한정기획', '올영픽', 'APP전용', '무료배송', '오늘드림']
+    
+    mock_products = []
+    
+    for keyword in keywords:
+        # 각 키워드에 대해 상품 생성
+        for i in range(num_products):
+            brand = random.choice(brands)
+            
+            # 키워드에 맞는 상품 타입 선택
+            if keyword.lower() in product_types:
+                product_name = random.choice(product_types[keyword.lower()])
+            else:
+                # 키워드가 없으면 랜덤하게 선택
+                all_products = []
+                for products in product_types.values():
+                    all_products.extend(products)
+                product_name = random.choice(all_products)
+            
+            # 가격 생성
+            base_price = random.randint(8000, 45000)
+            discount_rate = random.choice([0, 10, 15, 20, 25, 30, 35])
+            
+            if discount_rate > 0:
+                original_price = base_price
+                discount_price = int(base_price * (100 - discount_rate) / 100)
+            else:
+                original_price = ""
+                discount_price = base_price
+            
+            # 상품 정보 구성
+            product_info = {
+                '브랜드': brand,
+                '상품명': f"{brand} {product_name} {random.randint(100, 500)}ml",
+                '원가': f"{original_price:,}" if original_price else "",
+                '할인가': f"{discount_price:,}",
+                '혜택': ", ".join(random.sample(benefits, random.randint(1, 3))),
+                '검색키워드': keyword,
+                '상품코드': f"A{random.randint(100000, 999999)}",
+                '상품URL': f"https://www.oliveyoung.co.kr/store/goods/getGoodsDetail.do?goodsNo=A{random.randint(100000, 999999)}",
+                '이미지URL': f"https://image.oliveyoung.co.kr/uploads/images/goods/{random.randint(100, 999)}/0000/{random.randint(1000, 9999)}/A{random.randint(100000, 999999)}_B.jpg",
+                '선택됨': False,
+                '목표가격': "",
+                '크롤링시간': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                '가격히스토리': [{
+                    '날짜': datetime.now().strftime('%Y-%m-%d'),
+                    '원가': f"{original_price:,}" if original_price else "",
+                    '할인가': f"{discount_price:,}",
+                    '시간': datetime.now().strftime('%H:%M:%S')
+                }]
+            }
+            
+            mock_products.append(product_info)
+    
+    return mock_products
+
 class OliveYoungScraper:
     def __init__(self):
         self.base_url = "https://www.oliveyoung.co.kr/store/search/getSearchMain.do"
@@ -687,6 +759,21 @@ def create_price_history_chart(product_data):
 # 메인 앱
 def main():
     st.title("🛍️ 올리브영 상품 크롤러 (Requests 버전)")
+    
+    # 앱 소개
+    st.markdown("""
+    ### 🎯 **주요 기능**
+    - **실시간 상품 검색**: 올리브영에서 원하는 상품을 검색하고 가격 정보를 수집합니다
+    - **관심 상품 관리**: 원하는 상품을 관심 목록에 추가하고 목표 가격을 설정할 수 있습니다
+    - **가격 추적**: 관심 상품의 가격 변화를 추적하고 그래프로 확인할 수 있습니다
+    - **엑셀 내보내기**: 상품 정보와 가격 히스토리를 엑셀 파일로 저장할 수 있습니다
+    
+    ### 🎭 **데이터 모드 안내**
+    - **실제 크롤링**: 올리브영 웹사이트에서 실시간 데이터를 수집 (차단될 수 있음)
+    - **모의 데이터**: 실제와 유사한 가상의 상품 데이터로 앱 기능 테스트
+    - **자동 모드**: 실제 크롤링 실패 시 자동으로 모의 데이터 생성 ⭐**권장**
+    """)
+    
     st.markdown("---")
     
     # 세션 상태 초기화
@@ -712,6 +799,18 @@ def main():
             help="각 검색어당 크롤링할 페이지 수"
         )
         
+        # 모의 데이터 옵션 추가
+        st.subheader("🎭 데이터 모드")
+        data_mode = st.radio(
+            "데이터 수집 방식을 선택하세요",
+            options=["실제 크롤링 시도", "모의 데이터 생성", "자동 (크롤링 실패 시 모의 데이터)"],
+            index=2,
+            help="올리브영이 크롤링을 차단하는 경우 모의 데이터를 사용할 수 있습니다"
+        )
+        
+        if data_mode == "모의 데이터 생성":
+            mock_count = st.slider("생성할 상품 수 (키워드당)", 5, 20, 10)
+        
         # 크롤링 시작 버튼
         if st.button("🚀 크롤링 시작", type="primary", use_container_width=True):
             if keywords_text.strip():
@@ -726,49 +825,92 @@ def main():
                     status_text.text(message)
                     if progress is not None:
                         progress_bar.progress(progress)
-                    
-                    # 디버깅 정보 표시
-                    debug_info.info(f"🔍 디버그: {message}")
+                    debug_info.info(f"🔍 {message}")
                 
-                # 크롤링 실행
-                with st.spinner("크롤링 중..."):
-                    try:
-                        st.info(f"🎯 검색 키워드: {', '.join(keywords)}")
-                        st.info(f"📄 페이지 수: {max_pages}")
-                        
-                        products = st.session_state.scraper.scrape_products(
-                            keywords, 
-                            max_pages,
-                            progress_callback=update_progress
-                        )
-                        
-                        st.session_state.products_data = products
-                        save_data()
-                        
-                        progress_bar.progress(1.0)
-                        status_text.text(f"✅ 크롤링 완료! 총 {len(products)}개 상품")
-                        
-                        if len(products) > 0:
-                            st.success(f"🎉 {len(products)}개 상품을 찾았습니다!")
+                # 모의 데이터 생성 모드
+                if data_mode == "모의 데이터 생성":
+                    with st.spinner("모의 데이터 생성 중..."):
+                        try:
+                            update_progress("모의 데이터 생성 중...", 0.5)
+                            products = generate_mock_data(keywords, mock_count)
+                            
+                            st.session_state.products_data = products
+                            save_data()
+                            
+                            progress_bar.progress(1.0)
+                            status_text.text(f"✅ 모의 데이터 생성 완료! 총 {len(products)}개 상품")
+                            st.success(f"🎭 {len(products)}개 모의 상품을 생성했습니다!")
                             
                             # 샘플 상품 정보 표시
-                            st.subheader("📋 크롤링된 상품 샘플")
+                            st.subheader("📋 생성된 모의 상품 샘플")
                             sample_count = min(3, len(products))
                             for i in range(sample_count):
                                 product = products[i]
-                                st.info(f"**{product.get('브랜드', 'N/A')}** - {product.get('상품명', 'N/A')[:50]}... | 가격: {product.get('할인가', 'N/A')} | 키워드: {product.get('검색키워드', 'N/A')}")
-                        else:
-                            st.warning("⚠️ 상품을 찾을 수 없습니다. 다른 검색어를 시도해보세요.")
-                            st.info("💡 팁: '토너', '세럼', '클렌징', '마스크' 등 구체적인 상품명을 사용해보세요.")
-                        
-                        debug_info.empty()  # 디버그 정보 제거
-                        
-                    except Exception as e:
-                        st.error(f"❌ 크롤링 오류: {str(e)}")
-                        st.info("🔧 문제 해결 방법:")
-                        st.info("1. 잠시 후 다시 시도해보세요")
-                        st.info("2. 다른 검색어를 사용해보세요")
-                        st.info("3. 페이지 수를 줄여보세요")
+                                st.info(f"**{product.get('브랜드', 'N/A')}** - {product.get('상품명', 'N/A')} | 가격: {product.get('할인가', 'N/A')}원 | 키워드: {product.get('검색키워드', 'N/A')}")
+                            
+                            debug_info.empty()
+                            
+                        except Exception as e:
+                            st.error(f"❌ 모의 데이터 생성 오류: {str(e)}")
+                
+                # 실제 크롤링 또는 자동 모드
+                else:
+                    with st.spinner("크롤링 중..."):
+                        try:
+                            st.info(f"🎯 검색 키워드: {', '.join(keywords)}")
+                            st.info(f"📄 페이지 수: {max_pages}")
+                            
+                            # 실제 크롤링 시도
+                            products = st.session_state.scraper.scrape_products(
+                                keywords, 
+                                max_pages,
+                                progress_callback=update_progress
+                            )
+                            
+                            # 크롤링 실패 시 모의 데이터 생성 (자동 모드)
+                            if len(products) == 0 and data_mode == "자동 (크롤링 실패 시 모의 데이터)":
+                                st.warning("⚠️ 실제 크롤링에서 데이터를 가져올 수 없습니다. 모의 데이터를 생성합니다.")
+                                update_progress("모의 데이터 생성 중...", 0.8)
+                                products = generate_mock_data(keywords, 10)
+                                st.info("🎭 모의 데이터로 앱 기능을 테스트해보세요!")
+                            
+                            st.session_state.products_data = products
+                            save_data()
+                            
+                            progress_bar.progress(1.0)
+                            status_text.text(f"✅ 완료! 총 {len(products)}개 상품")
+                            
+                            if len(products) > 0:
+                                st.success(f"🎉 {len(products)}개 상품을 찾았습니다!")
+                                
+                                # 샘플 상품 정보 표시
+                                st.subheader("📋 상품 샘플")
+                                sample_count = min(3, len(products))
+                                for i in range(sample_count):
+                                    product = products[i]
+                                    st.info(f"**{product.get('브랜드', 'N/A')}** - {product.get('상품명', 'N/A')[:50]}... | 가격: {product.get('할인가', 'N/A')} | 키워드: {product.get('검색키워드', 'N/A')}")
+                            else:
+                                st.warning("⚠️ 상품을 찾을 수 없습니다.")
+                                st.info("💡 해결 방법:")
+                                st.info("1. '모의 데이터 생성' 모드를 사용해보세요")
+                                st.info("2. 다른 검색어를 시도해보세요")
+                                st.info("3. 나중에 다시 시도해보세요")
+                            
+                            debug_info.empty()
+                            
+                        except Exception as e:
+                            st.error(f"❌ 오류: {str(e)}")
+                            
+                            # 자동 모드에서 오류 발생 시 모의 데이터 생성
+                            if data_mode == "자동 (크롤링 실패 시 모의 데이터)":
+                                st.info("🎭 모의 데이터를 생성합니다...")
+                                try:
+                                    products = generate_mock_data(keywords, 10)
+                                    st.session_state.products_data = products
+                                    save_data()
+                                    st.success(f"🎭 {len(products)}개 모의 상품을 생성했습니다!")
+                                except Exception as mock_e:
+                                    st.error(f"모의 데이터 생성도 실패: {str(mock_e)}")
             else:
                 st.warning("⚠️ 검색어를 입력해주세요")
         
@@ -804,18 +946,32 @@ def main():
         # 디버그 섹션
         st.markdown("---")
         st.subheader("🔧 테스트")
-        if st.button("🧪 연결 테스트", use_container_width=True):
-            try:
-                test_url = "https://www.oliveyoung.co.kr"
-                response = requests.get(test_url, timeout=10)
-                if response.status_code == 200:
-                    st.success(f"✅ 올리브영 연결 성공 ({response.status_code})")
-                else:
-                    st.warning(f"⚠️ 응답 코드: {response.status_code}")
-            except Exception as e:
-                st.error(f"❌ 연결 실패: {str(e)}")
         
-        if st.button("🔍 단일 검색 테스트", use_container_width=True):
+        col_test1, col_test2 = st.columns(2)
+        
+        with col_test1:
+            if st.button("🧪 연결 테스트", use_container_width=True):
+                try:
+                    test_url = "https://www.oliveyoung.co.kr"
+                    response = requests.get(test_url, timeout=10)
+                    if response.status_code == 200:
+                        st.success(f"✅ 올리브영 연결 성공 ({response.status_code})")
+                    else:
+                        st.warning(f"⚠️ 응답 코드: {response.status_code}")
+                except Exception as e:
+                    st.error(f"❌ 연결 실패: {str(e)}")
+        
+        with col_test2:
+            if st.button("🎭 모의 데이터 테스트", use_container_width=True):
+                try:
+                    test_products = generate_mock_data(["테스트"], 3)
+                    st.success(f"✅ 모의 데이터 {len(test_products)}개 생성 성공")
+                    if test_products:
+                        st.json(test_products[0])  # 첫 번째 상품 정보 표시
+                except Exception as e:
+                    st.error(f"❌ 모의 데이터 생성 실패: {str(e)}")
+        
+        if st.button("🔍 실제 크롤링 테스트", use_container_width=True):
             test_keyword = "토너"
             progress_text = st.empty()
             
@@ -825,11 +981,15 @@ def main():
             try:
                 scraper = OliveYoungScraper()
                 results = scraper.scrape_products([test_keyword], 1, test_progress)
-                st.info(f"테스트 결과: {len(results)}개 상품 발견")
-                if results:
+                if len(results) > 0:
+                    st.success(f"✅ 실제 크롤링 성공: {len(results)}개 상품 발견")
                     st.json(results[0])  # 첫 번째 상품 정보 표시
+                else:
+                    st.warning("⚠️ 실제 크롤링에서 상품을 찾지 못했습니다")
+                    st.info("올리브영이 크롤링을 차단하고 있을 가능성이 높습니다. 모의 데이터를 사용하세요.")
             except Exception as e:
-                st.error(f"테스트 실패: {str(e)}")
+                st.error(f"❌ 크롤링 테스트 실패: {str(e)}")
+                st.info("💡 해결책: '자동 (크롤링 실패 시 모의 데이터)' 모드를 사용하세요")
             finally:
                 progress_text.empty()
     
@@ -1249,6 +1409,45 @@ def main():
         
         else:
             st.info("⭐ 관심상품이 없습니다. 검색 결과에서 상품을 추가해주세요.")
+            
+            # 관심상품 기능 안내
+            st.markdown("""
+            ### 📚 **관심상품 기능 안내**
+            
+            #### 🛍️ **상품 추가 방법**
+            1. **검색 결과 탭**에서 원하는 상품의 **⭐ 관심상품 추가** 버튼 클릭
+            2. 또는 **⭐ 전체 관심상품 추가** 버튼으로 모든 검색 결과를 한 번에 추가
+            
+            #### 🎯 **목표가격 설정**
+            - 관심상품에 목표가격을 설정하면 가격이 목표치 이하로 떨어졌을 때 확인 가능
+            - 목표가격 달성 여부를 한눈에 확인하고 할인 금액까지 계산
+            
+            #### 🔄 **가격 추적**
+            - **🔄 선택된 상품 새로고침**으로 최신 가격 정보 업데이트
+            - 가격 변화 히스토리를 그래프와 표로 확인
+            
+            #### 📊 **데이터 내보내기**
+            - **전체 엑셀 다운로드**: 모든 관심상품 정보
+            - **선택된 상품 다운로드**: 체크한 상품만 선별 다운로드
+            - 가격 히스토리, 목표가격 달성 상품 등 별도 시트로 구성
+            
+            ### 🎭 **모의 데이터로 기능 테스트**
+            실제 상품이 없어도 모의 데이터로 모든 기능을 체험해보세요!
+            """)
+            
+            # 기능 미리보기
+            st.subheader("⚡ 기능 미리보기")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**목표가격 달성 알림**")
+                st.success("✅ 라네즈 토너 - 목표가격 15,000원 달성! (현재 14,500원)")
+                st.warning("❌ 헤라 세럼 - 목표가격 미달성 (현재 32,000원, 목표 30,000원)")
+            
+            with col2:
+                st.markdown("**가격 변화 추적**")
+                st.info("📈 이니스프리 선크림: 15,000원 → 13,500원 → 12,000원 (20% 할인)")
+                st.info("📊 총 3회 가격 변동 기록됨")
 
 # 자동 데이터 로드
 if __name__ == "__main__":

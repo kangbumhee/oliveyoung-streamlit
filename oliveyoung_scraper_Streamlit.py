@@ -6,32 +6,9 @@ st.set_page_config(  # ✅ Streamlit 관련 첫 번째 명령어여야 함
     initial_sidebar_state="expanded"
 )
 
-import subprocess
-import sys
-
-# 필요한 패키지 자동 설치
-def install_package(package_name):
-    try:
-        __import__(package_name)
-    except ImportError:
-        st.info(f"📦 {package_name} 패키지를 설치하는 중...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
-
-# BeautifulSoup 설치 확인
-try:
-    from bs4 import BeautifulSoup
-except ImportError:
-    install_package("beautifulsoup4")
-    from bs4 import BeautifulSoup
-
-# requests 설치 확인
-try:
-    import requests
-except ImportError:
-    install_package("requests")
-    import requests
-
-# 기본 라이브러리들
+# 필수 라이브러리들
+import requests
+from bs4 import BeautifulSoup
 import pandas as pd
 import time
 import re
@@ -41,27 +18,14 @@ import json
 import os
 import io
 
-# PIL 설치 확인 (이미지 처리용, 실제로는 streamlit에서 자동 처리)
-try:
-    from PIL import Image
-except ImportError:
-    install_package("Pillow")
-    from PIL import Image
-
-# plotly 설치 확인
+# 선택적 라이브러리들
 try:
     import plotly.express as px
     import plotly.graph_objects as go
     PLOTLY_AVAILABLE = True
 except ImportError:
-    try:
-        install_package("plotly")
-        import plotly.express as px
-        import plotly.graph_objects as go
-        PLOTLY_AVAILABLE = True
-    except:
-        PLOTLY_AVAILABLE = False
-        st.warning("📊 그래프 기능을 사용할 수 없습니다.")
+    PLOTLY_AVAILABLE = False
+    st.warning("📊 그래프 기능을 사용할 수 없습니다. plotly가 설치되지 않았습니다.")
 
 class OliveYoungScraper:
     def __init__(self):

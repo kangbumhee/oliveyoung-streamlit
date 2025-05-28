@@ -27,86 +27,21 @@ except ImportError:
     PLOTLY_AVAILABLE = False
     st.warning("📊 그래프 기능을 사용할 수 없습니다. plotly가 설치되지 않았습니다.")
 
-# 모의 데이터 생성 함수
-def generate_mock_data(keywords, num_products=10):
-    """크롤링이 안 될 때 사용할 모의 데이터 생성"""
-    import random
-    
-    brands = ['아이오페', '라네즈', '헤라', '설화수', '후', '더샘', '토니모리', '에튜드', '미샤', '네이처리퍼블릭', 
-              '이니스프리', '스킨푸드', '더페이스샵', '올리브영', '아리따움', '에이프릴스킨', '시원팩트', '센텔리안24']
-    
-    product_types = {
-        '토너': ['토너', '토닝 로션', '스킨 토너', '밸런싱 토너', '수분 토너'],
-        '세럼': ['세럼', '에센스', '앰플', '부스터 세럼', '집중케어 세럼'],
-        '선크림': ['선크림', '선블록', 'SPF 크림', 'UV 차단크림', '자외선 차단제'],
-        '클렌징': ['클렌징폼', '클렌징오일', '클렌저', '세안제', '메이크업 리무버'],
-        '마스크': ['마스크팩', '시트마스크', '슬리핑마스크', '클레이마스크', '필오프마스크']
-    }
-    
-    benefits = ['온라인특가', '1+1', '증정', '한정기획', '올영픽', 'APP전용', '무료배송', '오늘드림']
-    
-    mock_products = []
-    
-    for keyword in keywords:
-        # 각 키워드에 대해 상품 생성
-        for i in range(num_products):
-            brand = random.choice(brands)
-            
-            # 키워드에 맞는 상품 타입 선택
-            if keyword.lower() in product_types:
-                product_name = random.choice(product_types[keyword.lower()])
-            else:
-                # 키워드가 없으면 랜덤하게 선택
-                all_products = []
-                for products in product_types.values():
-                    all_products.extend(products)
-                product_name = random.choice(all_products)
-            
-            # 가격 생성
-            base_price = random.randint(8000, 45000)
-            discount_rate = random.choice([0, 10, 15, 20, 25, 30, 35])
-            
-            if discount_rate > 0:
-                original_price = base_price
-                discount_price = int(base_price * (100 - discount_rate) / 100)
-            else:
-                original_price = ""
-                discount_price = base_price
-            
-            # 상품 정보 구성
-            product_info = {
-                '브랜드': brand,
-                '상품명': f"{brand} {product_name} {random.randint(100, 500)}ml",
-                '원가': f"{original_price:,}" if original_price else "",
-                '할인가': f"{discount_price:,}",
-                '혜택': ", ".join(random.sample(benefits, random.randint(1, 3))),
-                '검색키워드': keyword,
-                '상품코드': f"A{random.randint(100000, 999999)}",
-                '상품URL': f"https://www.oliveyoung.co.kr/store/goods/getGoodsDetail.do?goodsNo=A{random.randint(100000, 999999)}",
-                '이미지URL': f"https://image.oliveyoung.co.kr/uploads/images/goods/{random.randint(100, 999)}/0000/{random.randint(1000, 9999)}/A{random.randint(100000, 999999)}_B.jpg",
-                '선택됨': False,
-                '목표가격': "",
-                '크롤링시간': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                '가격히스토리': [{
-                    '날짜': datetime.now().strftime('%Y-%m-%d'),
-                    '원가': f"{original_price:,}" if original_price else "",
-                    '할인가': f"{discount_price:,}",
-                    '시간': datetime.now().strftime('%H:%M:%S')
-                }]
-            }
-            
-            mock_products.append(product_info)
-    
-    return mock_products
-
 class OliveYoungScraper:
     def __init__(self):
-        self.base_url = "https://www.oliveyoung.co.kr/store/search/getSearchMain.do"
+        # 모바일과 데스크톱 URL 모두 시도
+        self.urls = {
+            'mobile_search': "https://m.oliveyoung.co.kr/m/search/searchList.do",
+            'desktop_search': "https://www.oliveyoung.co.kr/store/search/getSearchMain.do",
+            'api_search': "https://www.oliveyoung.co.kr/api/search/searchList"
+        }
         self.products = []
         self.session = requests.Session()
+        
+        # 실제 브라우저처럼 보이도록 헤더 설정
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
@@ -115,9 +50,40 @@ class OliveYoungScraper:
             'Sec-Fetch-Mode': 'navigate',
             'Sec-Fetch-Site': 'none',
             'Sec-Fetch-User': '?1',
-            'Cache-Control': 'max-age=0',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'Referer': 'https://www.oliveyoung.co.kr/',
             'DNT': '1'
         })
+        
+        # 쿠키 사전 설정
+        self._init_session()
+    
+    def _init_session(self):
+        """세션 초기화 - 메인 페이지 방문으로 쿠키 설정"""
+        try:
+            # 메인 페이지 방문으로 쿠키 획득
+            main_urls = [
+                'https://www.oliveyoung.co.kr',
+                'https://m.oliveyoung.co.kr'
+            ]
+            
+            for url in main_urls:
+                try:
+                    response = self.session.get(url, timeout=10)
+                    if response.status_code == 200:
+                        break
+                except:
+                    continue
+                    
+            # 추가 헤더 설정
+            self.session.headers.update({
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+            })
+            
+        except Exception as e:
+            pass
         
     def scrape_products(self, search_keywords, max_pages=1, progress_callback=None):
         """올리브영에서 여러 검색어로 상품 정보를 크롤링"""
@@ -131,54 +97,140 @@ class OliveYoungScraper:
                     progress_callback(f"'{keyword}' 검색 중... ({keyword_idx + 1}/{total_keywords})")
                 
                 for page_num in range(1, max_pages + 1):
-                    search_url = f"{self.base_url}?query={quote(keyword)}&giftYn=N&t_page=통합&t_click=검색창&t_search_name=검색&page={page_num}"
+                    if progress_callback:
+                        progress_callback(f"'{keyword}' {page_num}페이지 검색 중...")
                     
-                    try:
-                        if progress_callback:
-                            progress_callback(f"'{keyword}' {page_num}페이지 요청 중...")
+                    # 다양한 URL 패턴 시도
+                    success = False
+                    
+                    # 1. 모바일 URL 시도
+                    mobile_params = {
+                        'query': keyword,
+                        'page': page_num,
+                        'listType': 'list'
+                    }
+                    
+                    success = self._try_search_url(
+                        self.urls['mobile_search'],
+                        mobile_params,
+                        keyword,
+                        page_num,
+                        progress_callback,
+                        "모바일"
+                    )
+                    
+                    # 2. 데스크톱 URL 시도 (모바일 실패시)
+                    if not success:
+                        desktop_params = {
+                            'query': keyword,
+                            'page': page_num,
+                            'giftYn': 'N',
+                            't_page': '통합',
+                            't_click': '검색창',
+                            't_search_name': '검색'
+                        }
                         
-                        response = self.session.get(search_url, timeout=15)
-                        
-                        if progress_callback:
-                            progress_callback(f"응답 상태: {response.status_code}")
-                        
-                        if response.status_code == 200:
-                            soup = BeautifulSoup(response.text, 'html.parser')
-                            
-                            # 디버깅: 응답 내용 확인
-                            if progress_callback:
-                                progress_callback(f"HTML 길이: {len(response.text)} bytes")
-                            
-                            extracted_count = self._extract_products(soup, keyword, page_num)
-                            
-                            if progress_callback:
-                                progress = (keyword_idx * max_pages + page_num) / (total_keywords * max_pages)
-                                progress_callback(f"'{keyword}' {page_num}페이지: {extracted_count}개 상품 추출 - 총 {len(self.products)}개", progress)
-                        else:
-                            if progress_callback:
-                                progress_callback(f"HTTP 오류: {response.status_code} - {response.reason}")
-                        
-                        # 요청 간격 조절
-                        time.sleep(2)  # 2초로 증가
-                        
-                    except requests.Timeout:
-                        if progress_callback:
-                            progress_callback(f"'{keyword}' {page_num}페이지 시간 초과")
-                        continue
-                    except requests.RequestException as e:
-                        if progress_callback:
-                            progress_callback(f"'{keyword}' {page_num}페이지 네트워크 오류: {str(e)}")
-                        continue
-                    except Exception as e:
-                        if progress_callback:
-                            progress_callback(f"'{keyword}' {page_num}페이지 처리 오류: {str(e)}")
-                        continue
+                        success = self._try_search_url(
+                            self.urls['desktop_search'],
+                            desktop_params,
+                            keyword,
+                            page_num,
+                            progress_callback,
+                            "데스크톱"
+                        )
+                    
+                    # 3. POST 방식 시도 (GET 실패시)
+                    if not success:
+                        success = self._try_post_search(
+                            keyword,
+                            page_num,
+                            progress_callback
+                        )
+                    
+                    if progress_callback:
+                        progress = (keyword_idx * max_pages + page_num) / (total_keywords * max_pages)
+                        status = "성공" if success else "실패"
+                        progress_callback(f"'{keyword}' {page_num}페이지 {status} - 총 {len(self.products)}개 상품", progress)
+                    
+                    # 요청 간격 조절
+                    time.sleep(2)
                         
         except Exception as e:
             if progress_callback:
                 progress_callback(f"크롤링 중 전체 오류: {str(e)}", 1.0)
                 
         return self.products
+    
+    def _try_search_url(self, url, params, keyword, page_num, progress_callback, method_name):
+        """특정 URL로 검색 시도"""
+        try:
+            if progress_callback:
+                progress_callback(f"{method_name} 방식으로 '{keyword}' 검색 중...")
+            
+            response = self.session.get(url, params=params, timeout=15)
+            
+            if progress_callback:
+                progress_callback(f"{method_name} 응답: {response.status_code}")
+            
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                # 응답 내용 디버깅
+                if progress_callback:
+                    progress_callback(f"HTML 길이: {len(response.text)} bytes")
+                
+                extracted_count = self._extract_products(soup, keyword)
+                
+                if extracted_count > 0:
+                    if progress_callback:
+                        progress_callback(f"{method_name} 성공: {extracted_count}개 상품 추출")
+                    return True
+                else:
+                    if progress_callback:
+                        progress_callback(f"{method_name} 실패: 상품 추출 불가")
+                    
+            return False
+            
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"{method_name} 오류: {str(e)}")
+            return False
+    
+    def _try_post_search(self, keyword, page_num, progress_callback):
+        """POST 방식으로 검색 시도"""
+        try:
+            if progress_callback:
+                progress_callback(f"POST 방식으로 '{keyword}' 검색 중...")
+            
+            # POST 데이터
+            post_data = {
+                'searchWord': keyword,
+                'page': page_num,
+                'sort': 'default'
+            }
+            
+            # POST 요청
+            response = self.session.post(
+                self.urls['desktop_search'],
+                data=post_data,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                extracted_count = self._extract_products(soup, keyword)
+                
+                if extracted_count > 0:
+                    if progress_callback:
+                        progress_callback(f"POST 성공: {extracted_count}개 상품 추출")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"POST 오류: {str(e)}")
+            return False
     
     def scrape_selected_products(self, selected_products, progress_callback=None):
         """선택된 상품들을 새로고침"""
@@ -388,151 +440,75 @@ class OliveYoungScraper:
         return new_product
     
     def _extract_products(self, soup, keyword):
-        """상품 정보 추출"""
+        """상품 정보 추출 - 데스크톱/모바일 모두 대응"""
         extracted_count = 0
         
-        # 다양한 상품 리스트 셀렉터 시도
+        # 다양한 상품 리스트 셀렉터 시도 (데스크톱 + 모바일)
         product_selectors = [
+            # 데스크톱 버전
             "li.flag.li_result",
-            "li.li_result", 
+            "li.li_result",
             ".prd_list li",
             ".search_item",
             ".item_box",
-            "[data-attr*='prd']"
+            "[data-attr*='prd']",
+            ".product_item",
+            ".goods_list li",
+            # 모바일 버전
+            ".prd_item",
+            ".goods_item", 
+            ".item",
+            ".product",
+            "[class*='item']",
+            "[class*='product']",
+            "[class*='goods']",
+            # 일반적인 상품 컨테이너
+            "[data-goodsno]",
+            "[data-goods-no]",
+            "[data-prd-no]"
         ]
         
         product_elements = []
+        used_selector = None
+        
+        # 각 셀렉터를 순서대로 시도
         for selector in product_selectors:
             elements = soup.select(selector)
-            if elements:
+            if elements and len(elements) > 0:
                 product_elements = elements
+                used_selector = selector
                 break
         
+        # 셀렉터로 찾지 못한 경우, 패턴 매칭으로 찾기
         if not product_elements:
-            # 전체 HTML에서 상품 관련 요소 찾기
-            product_elements = soup.find_all(attrs={"class": re.compile(r"(prd|product|item)")})
+            # 상품 관련 클래스명을 가진 모든 요소 찾기
+            all_elements = soup.find_all(attrs={"class": re.compile(r"(prd|product|item|goods)", re.I)})
+            if all_elements:
+                product_elements = all_elements[:20]  # 최대 20개만
+                used_selector = "pattern_matching"
         
+        # 여전히 찾지 못한 경우, div나 li 요소 중에서 찾기
+        if not product_elements:
+            potential_elements = soup.find_all(['li', 'div'], limit=50)
+            for elem in potential_elements:
+                # 상품 정보가 있을 것 같은 요소 찾기
+                if (elem.find(string=re.compile(r'원|won|\d+,\d+', re.I)) and 
+                    (elem.find('img') or elem.find(string=re.compile(r'[가-힣]{2,}', re.I)))):
+                    product_elements.append(elem)
+                    if len(product_elements) >= 20:
+                        break
+            used_selector = "fallback_search"
+        
+        # 상품 정보 추출
         for element in product_elements:
             try:
-                product_info = {}
-                
-                # 브랜드 추출 - 다양한 셀렉터 시도
-                brand = ""
-                brand_selectors = [".tx_brand", ".brand", ".prd_brand", "[class*='brand']"]
-                for selector in brand_selectors:
-                    brand_elem = element.select_one(selector)
-                    if brand_elem:
-                        brand = brand_elem.get_text(strip=True)
-                        break
-                product_info['브랜드'] = brand
-                
-                # 상품명 추출
-                name = ""
-                name_selectors = [".tx_name", ".name", ".prd_name", ".title", "[class*='name']", "[class*='title']"]
-                for selector in name_selectors:
-                    name_elem = element.select_one(selector)
-                    if name_elem:
-                        name = name_elem.get_text(strip=True)
-                        break
-                product_info['상품명'] = name
-                
-                # 상품명이나 브랜드가 없으면 스킵
-                if not name and not brand:
-                    continue
-                
-                # 가격 정보 추출
-                original_price = ""
-                discount_price = ""
-                
-                # 다양한 가격 셀렉터 시도
-                price_selectors = [
-                    ".prd_price",
-                    ".price",
-                    "[class*='price']"
-                ]
-                
-                price_section = None
-                for selector in price_selectors:
-                    price_section = element.select_one(selector)
-                    if price_section:
-                        break
-                
-                if price_section:
-                    # 원가 추출
-                    original_selectors = [".tx_org .tx_num", ".original", ".before", "strike", "[class*='original']"]
-                    for selector in original_selectors:
-                        original_elem = price_section.select_one(selector)
-                        if original_elem:
-                            original_price = original_elem.get_text(strip=True)
-                            break
-                    
-                    # 할인가 추출
-                    discount_selectors = [".tx_cur .tx_num", ".current", ".sale", ".final", "[class*='current']", "[class*='sale']"]
-                    for selector in discount_selectors:
-                        discount_elem = price_section.select_one(selector)
-                        if discount_elem:
-                            discount_price = discount_elem.get_text(strip=True)
-                            break
-                
-                # 가격이 없으면 텍스트에서 숫자 추출 시도
-                if not discount_price and not original_price:
-                    price_text = element.get_text()
-                    price_matches = re.findall(r'[\d,]+원?', price_text)
-                    if price_matches:
-                        discount_price = price_matches[0].replace('원', '')
-                
-                product_info['원가'] = original_price
-                product_info['할인가'] = discount_price
-                
-                # 혜택 정보
-                benefits = []
-                benefit_selectors = [".prd_flag .icon_flag", ".benefit", ".tag", "[class*='flag']", "[class*='benefit']"]
-                for selector in benefit_selectors:
-                    benefit_elems = element.select(selector)
-                    for benefit_elem in benefit_elems:
-                        benefit_text = benefit_elem.get_text(strip=True)
-                        if benefit_text:
-                            benefits.append(benefit_text)
-                product_info['혜택'] = ", ".join(benefits)
-                
-                # 이미지 URL
-                image_url = ""
-                img_selectors = ["img", ".prd_thumb img", ".thumb img", "[class*='img'] img"]
-                for selector in img_selectors:
-                    img_elem = element.select_one(selector)
-                    if img_elem:
-                        image_url = img_elem.get('src', '') or img_elem.get('data-src', '')
-                        if image_url:
-                            break
-                product_info['이미지URL'] = image_url
-                
-                # 상품 링크와 코드
-                link_elem = element.select_one("a")
-                href = link_elem.get('href', '') if link_elem else ""
-                if href:
-                    goods_no_match = re.search(r'goodsNo=([A-Z0-9]+)', href)
-                    product_info['상품코드'] = goods_no_match.group(1) if goods_no_match else ""
-                    product_info['상품URL'] = urljoin("https://www.oliveyoung.co.kr", href)
-                else:
-                    product_info['상품코드'] = ""
-                    product_info['상품URL'] = ""
-                
-                product_info['검색키워드'] = keyword
-                product_info['선택됨'] = False
-                product_info['목표가격'] = ""
-                product_info['크롤링시간'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                
-                # 가격 히스토리 초기화
-                current_date = datetime.now().strftime('%Y-%m-%d')
-                product_info['가격히스토리'] = [{
-                    '날짜': current_date,
-                    '원가': product_info['원가'],
-                    '할인가': product_info['할인가'],
-                    '시간': datetime.now().strftime('%H:%M:%S')
-                }]
+                product_info = self._extract_single_product(element, keyword)
                 
                 # 최소한의 정보가 있을 때만 추가
-                if product_info['상품명'] or product_info['브랜드']:
+                if (product_info and 
+                    (product_info.get('상품명') or product_info.get('브랜드')) and
+                    (product_info.get('할인가') or product_info.get('원가'))):
+                    
                     self.products.append(product_info)
                     extracted_count += 1
                 
@@ -540,6 +516,260 @@ class OliveYoungScraper:
                 continue
         
         return extracted_count
+    
+    def _extract_single_product(self, element, keyword):
+        """단일 상품 정보 추출"""
+        try:
+            product_info = {}
+            
+            # 브랜드 추출 - 다양한 셀렉터 시도
+            brand = self._extract_text_by_selectors(element, [
+                ".tx_brand", ".brand", ".prd_brand", ".brand_name",
+                "[class*='brand']", ".maker", ".company",
+                # 모바일 버전
+                ".item_brand", ".goods_brand", ".prod_brand"
+            ])
+            product_info['브랜드'] = brand
+            
+            # 상품명 추출
+            name = self._extract_text_by_selectors(element, [
+                ".tx_name", ".name", ".prd_name", ".title", ".product_name",
+                "[class*='name']", "[class*='title']", "h3", "h4",
+                # 모바일 버전
+                ".item_name", ".goods_name", ".prod_name", ".item_title"
+            ])
+            product_info['상품명'] = name
+            
+            # 가격 정보 추출
+            price_info = self._extract_price_info(element)
+            product_info.update(price_info)
+            
+            # 혜택 정보 추출
+            benefits = self._extract_benefits(element)
+            product_info['혜택'] = benefits
+            
+            # 이미지 URL 추출
+            image_url = self._extract_image_url(element)
+            product_info['이미지URL'] = image_url
+            
+            # 상품 링크와 코드 추출
+            link_info = self._extract_link_info(element)
+            product_info.update(link_info)
+            
+            # 기본 정보 설정
+            product_info['검색키워드'] = keyword
+            product_info['선택됨'] = False
+            product_info['목표가격'] = ""
+            product_info['크롤링시간'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # 가격 히스토리 초기화
+            current_date = datetime.now().strftime('%Y-%m-%d')
+            product_info['가격히스토리'] = [{
+                '날짜': current_date,
+                '원가': product_info.get('원가', ''),
+                '할인가': product_info.get('할인가', ''),
+                '시간': datetime.now().strftime('%H:%M:%S')
+            }]
+            
+            return product_info
+            
+        except Exception as e:
+            return None
+    
+    def _extract_text_by_selectors(self, element, selectors):
+        """여러 셀렉터로 텍스트 추출 시도"""
+        for selector in selectors:
+            try:
+                elem = element.select_one(selector)
+                if elem:
+                    text = elem.get_text(strip=True)
+                    if text and len(text) > 0:
+                        return text
+            except:
+                continue
+        return ""
+    
+    def _extract_price_info(self, element):
+        """가격 정보 추출"""
+        price_info = {'원가': '', '할인가': ''}
+        
+        try:
+            # 가격 섹션 찾기
+            price_section = None
+            price_selectors = [
+                ".prd_price", ".price", "[class*='price']", ".cost", ".amount",
+                ".item_price", ".goods_price", ".prod_price"  # 모바일
+            ]
+            
+            for selector in price_selectors:
+                price_section = element.select_one(selector)
+                if price_section:
+                    break
+            
+            if not price_section:
+                price_section = element  # 전체 요소에서 찾기
+            
+            # 원가 추출 (할인 전 가격)
+            original_selectors = [
+                ".tx_org .tx_num", ".original", ".before", "strike", "del",
+                "[class*='original']", "[class*='before']", ".old_price",
+                ".regular_price", ".list_price"
+            ]
+            
+            for selector in original_selectors:
+                elem = price_section.select_one(selector)
+                if elem:
+                    price_text = elem.get_text(strip=True)
+                    clean_price = self._clean_price(price_text)
+                    if clean_price:
+                        price_info['원가'] = clean_price
+                        break
+            
+            # 할인가 추출 (현재 가격)
+            discount_selectors = [
+                ".tx_cur .tx_num", ".current", ".sale", ".final", ".now",
+                "[class*='current']", "[class*='sale']", "[class*='final']",
+                ".sale_price", ".discount_price", ".special_price"
+            ]
+            
+            for selector in discount_selectors:
+                elem = price_section.select_one(selector)
+                if elem:
+                    price_text = elem.get_text(strip=True)
+                    clean_price = self._clean_price(price_text)
+                    if clean_price:
+                        price_info['할인가'] = clean_price
+                        break
+            
+            # 가격을 하나도 찾지 못한 경우, 숫자 패턴으로 찾기
+            if not price_info['원가'] and not price_info['할인가']:
+                all_text = price_section.get_text() if price_section else element.get_text()
+                prices = re.findall(r'[\d,]+\s*원?', all_text)
+                
+                if prices:
+                    # 첫 번째 가격을 할인가로 사용
+                    clean_price = self._clean_price(prices[0])
+                    if clean_price:
+                        price_info['할인가'] = clean_price
+                    
+                    # 두 번째 가격이 있으면 원가로 사용
+                    if len(prices) > 1:
+                        clean_original = self._clean_price(prices[1])
+                        if clean_original and int(clean_original.replace(',', '')) > int(clean_price.replace(',', '')):
+                            price_info['원가'] = clean_original
+            
+            # 할인가만 있고 원가가 없는 경우
+            if price_info['할인가'] and not price_info['원가']:
+                price_info['원가'] = price_info['할인가']
+            
+        except Exception as e:
+            pass
+        
+        return price_info
+    
+    def _clean_price(self, price_text):
+        """가격 텍스트 정리"""
+        if not price_text:
+            return ""
+        
+        # 숫자와 쉼표만 추출
+        numbers = re.findall(r'[\d,]+', price_text)
+        if numbers:
+            price_str = numbers[0].replace(',', '')
+            if price_str.isdigit() and int(price_str) > 100:  # 100원 이상인 경우만
+                return f"{int(price_str):,}"
+        
+        return ""
+    
+    def _extract_benefits(self, element):
+        """혜택 정보 추출"""
+        benefits = []
+        
+        benefit_selectors = [
+            ".prd_flag .icon_flag", ".benefit", ".tag", "[class*='flag']", 
+            "[class*='benefit']", ".event", ".promotion", ".special",
+            # 모바일
+            ".item_flag", ".goods_flag", ".prod_flag"
+        ]
+        
+        for selector in benefit_selectors:
+            benefit_elems = element.select(selector)
+            for benefit_elem in benefit_elems:
+                benefit_text = benefit_elem.get_text(strip=True)
+                if benefit_text and benefit_text not in benefits:
+                    benefits.append(benefit_text)
+        
+        return ", ".join(benefits)
+    
+    def _extract_image_url(self, element):
+        """이미지 URL 추출"""
+        img_selectors = [
+            "img", ".prd_thumb img", ".thumb img", "[class*='img'] img",
+            ".item_img img", ".goods_img img", ".prod_img img"  # 모바일
+        ]
+        
+        for selector in img_selectors:
+            img_elem = element.select_one(selector)
+            if img_elem:
+                image_url = img_elem.get('src', '') or img_elem.get('data-src', '')
+                if image_url:
+                    # 상대 경로를 절대 경로로 변환
+                    if image_url.startswith('//'):
+                        image_url = 'https:' + image_url
+                    elif image_url.startswith('/'):
+                        image_url = 'https://www.oliveyoung.co.kr' + image_url
+                    return image_url
+        
+        return ""
+    
+    def _extract_link_info(self, element):
+        """상품 링크와 코드 추출"""
+        link_info = {'상품코드': '', '상품URL': ''}
+        
+        try:
+            # 링크 요소 찾기
+            link_elem = element.select_one("a")
+            if not link_elem:
+                link_elem = element.find_parent("a")
+            
+            if link_elem:
+                href = link_elem.get('href', '')
+                if href:
+                    # 상품 코드 추출
+                    goods_patterns = [
+                        r'goodsNo=([A-Z0-9]+)',
+                        r'goods_no=([A-Z0-9]+)',
+                        r'prdNo=([A-Z0-9]+)',
+                        r'/goods/([A-Z0-9]+)',
+                        r'/product/([A-Z0-9]+)'
+                    ]
+                    
+                    for pattern in goods_patterns:
+                        match = re.search(pattern, href, re.I)
+                        if match:
+                            link_info['상품코드'] = match.group(1)
+                            break
+                    
+                    # 상품 URL 구성
+                    if href.startswith('http'):
+                        link_info['상품URL'] = href
+                    elif href.startswith('/'):
+                        link_info['상품URL'] = 'https://www.oliveyoung.co.kr' + href
+                    else:
+                        link_info['상품URL'] = 'https://www.oliveyoung.co.kr/' + href
+            
+            # 데이터 속성에서도 시도
+            if not link_info['상품코드']:
+                for attr in ['data-goodsno', 'data-goods-no', 'data-prd-no', 'data-product-id']:
+                    value = element.get(attr)
+                    if value:
+                        link_info['상품코드'] = value
+                        break
+        
+        except Exception as e:
+            pass
+        
+        return link_info
 
 # 세션 상태 초기화
 def init_session_state():
@@ -799,18 +1029,6 @@ def main():
             help="각 검색어당 크롤링할 페이지 수"
         )
         
-        # 모의 데이터 옵션 추가
-        st.subheader("🎭 데이터 모드")
-        data_mode = st.radio(
-            "데이터 수집 방식을 선택하세요",
-            options=["실제 크롤링 시도", "모의 데이터 생성", "자동 (크롤링 실패 시 모의 데이터)"],
-            index=2,
-            help="올리브영이 크롤링을 차단하는 경우 모의 데이터를 사용할 수 있습니다"
-        )
-        
-        if data_mode == "모의 데이터 생성":
-            mock_count = st.slider("생성할 상품 수 (키워드당)", 5, 20, 10)
-        
         # 크롤링 시작 버튼
         if st.button("🚀 크롤링 시작", type="primary", use_container_width=True):
             if keywords_text.strip():
@@ -827,90 +1045,55 @@ def main():
                         progress_bar.progress(progress)
                     debug_info.info(f"🔍 {message}")
                 
-                # 모의 데이터 생성 모드
-                if data_mode == "모의 데이터 생성":
-                    with st.spinner("모의 데이터 생성 중..."):
-                        try:
-                            update_progress("모의 데이터 생성 중...", 0.5)
-                            products = generate_mock_data(keywords, mock_count)
-                            
-                            st.session_state.products_data = products
-                            save_data()
-                            
-                            progress_bar.progress(1.0)
-                            status_text.text(f"✅ 모의 데이터 생성 완료! 총 {len(products)}개 상품")
-                            st.success(f"🎭 {len(products)}개 모의 상품을 생성했습니다!")
+                # 크롤링 실행
+                with st.spinner("크롤링 중..."):
+                    try:
+                        st.info(f"🎯 검색 키워드: {', '.join(keywords)}")
+                        st.info(f"📄 페이지 수: {max_pages} | 🌐 다중 URL 방식 사용")
+                        
+                        # 실제 크롤링 시도
+                        products = st.session_state.scraper.scrape_products(
+                            keywords, 
+                            max_pages,
+                            progress_callback=update_progress
+                        )
+                        
+                        st.session_state.products_data = products
+                        save_data()
+                        
+                        progress_bar.progress(1.0)
+                        status_text.text(f"✅ 완료! 총 {len(products)}개 상품")
+                        
+                        if len(products) > 0:
+                            st.success(f"🎉 {len(products)}개 상품을 찾았습니다!")
                             
                             # 샘플 상품 정보 표시
-                            st.subheader("📋 생성된 모의 상품 샘플")
-                            sample_count = min(3, len(products))
+                            st.subheader("📋 상품 샘플")
+                            sample_count = min(5, len(products))
                             for i in range(sample_count):
                                 product = products[i]
-                                st.info(f"**{product.get('브랜드', 'N/A')}** - {product.get('상품명', 'N/A')} | 가격: {product.get('할인가', 'N/A')}원 | 키워드: {product.get('검색키워드', 'N/A')}")
-                            
-                            debug_info.empty()
-                            
-                        except Exception as e:
-                            st.error(f"❌ 모의 데이터 생성 오류: {str(e)}")
-                
-                # 실제 크롤링 또는 자동 모드
-                else:
-                    with st.spinner("크롤링 중..."):
-                        try:
-                            st.info(f"🎯 검색 키워드: {', '.join(keywords)}")
-                            st.info(f"📄 페이지 수: {max_pages}")
-                            
-                            # 실제 크롤링 시도
-                            products = st.session_state.scraper.scrape_products(
-                                keywords, 
-                                max_pages,
-                                progress_callback=update_progress
-                            )
-                            
-                            # 크롤링 실패 시 모의 데이터 생성 (자동 모드)
-                            if len(products) == 0 and data_mode == "자동 (크롤링 실패 시 모의 데이터)":
-                                st.warning("⚠️ 실제 크롤링에서 데이터를 가져올 수 없습니다. 모의 데이터를 생성합니다.")
-                                update_progress("모의 데이터 생성 중...", 0.8)
-                                products = generate_mock_data(keywords, 10)
-                                st.info("🎭 모의 데이터로 앱 기능을 테스트해보세요!")
-                            
-                            st.session_state.products_data = products
-                            save_data()
-                            
-                            progress_bar.progress(1.0)
-                            status_text.text(f"✅ 완료! 총 {len(products)}개 상품")
-                            
-                            if len(products) > 0:
-                                st.success(f"🎉 {len(products)}개 상품을 찾았습니다!")
-                                
-                                # 샘플 상품 정보 표시
-                                st.subheader("📋 상품 샘플")
-                                sample_count = min(3, len(products))
-                                for i in range(sample_count):
-                                    product = products[i]
-                                    st.info(f"**{product.get('브랜드', 'N/A')}** - {product.get('상품명', 'N/A')[:50]}... | 가격: {product.get('할인가', 'N/A')} | 키워드: {product.get('검색키워드', 'N/A')}")
-                            else:
-                                st.warning("⚠️ 상품을 찾을 수 없습니다.")
-                                st.info("💡 해결 방법:")
-                                st.info("1. '모의 데이터 생성' 모드를 사용해보세요")
-                                st.info("2. 다른 검색어를 시도해보세요")
-                                st.info("3. 나중에 다시 시도해보세요")
-                            
-                            debug_info.empty()
-                            
-                        except Exception as e:
-                            st.error(f"❌ 오류: {str(e)}")
-                            
-                            # 자동 모드에서 오류 발생 시 모의 데이터 생성
-                            if data_mode == "자동 (크롤링 실패 시 모의 데이터)":
-                                st.info("🎭 모의 데이터를 생성합니다...")
-                                try:
-                                    products = generate_mock_data(keywords, 10)
-                                    st.session_state.products_data = products
-                                    save_data()
-                                    st.success(f"🎭 {len(products)}개 모의 상품을 생성했습니다!")
-                                except Exception as mock_e:
-                                    st.error(f"모의 데이터 생성도 실패: {str(mock_e)}")
+                                brand = product.get('브랜드', 'N/A')
+                                name = product.get('상품명', 'N/A')[:50]
+                                price = product.get('할인가', product.get('원가', 'N/A'))
+                                keyword = product.get('검색키워드', 'N/A')
+                                st.info(f"**{brand}** - {name}... | 가격: {price}원 | 키워드: {keyword}")
+                        else:
+                            st.warning("⚠️ 상품을 찾을 수 없습니다.")
+                            st.info("🔧 **해결 방법:**")
+                            st.info("1. 다른 검색어를 시도해보세요 (예: 토너, 세럼, 클렌징)")
+                            st.info("2. 5분 후 다시 시도해보세요")
+                            st.info("3. 페이지 수를 1로 줄여보세요")
+                            st.info("4. 아래 테스트 기능으로 연결 상태를 확인해보세요")
+                        
+                        debug_info.empty()
+                        
+                    except Exception as e:
+                        st.error(f"❌ 크롤링 오류: {str(e)}")
+                        st.info("🔧 **문제 해결:**")
+                        st.info("1. 인터넷 연결을 확인해주세요")
+                        st.info("2. 잠시 후 다시 시도해주세요")
+                        st.info("3. 아래 연결 테스트를 실행해보세요")
+                        
             else:
                 st.warning("⚠️ 검색어를 입력해주세요")
         

@@ -14,6 +14,13 @@ from PIL import Image
 import requests
 import webbrowser
 
+# 페이지 설정
+st.set_page_config(
+    page_title="올리브영 상품 크롤러",
+    page_icon="🛍️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+
 # 라이브러리 설치 확인
 try:
     from playwright.async_api import async_playwright
@@ -30,12 +37,7 @@ except ImportError:
     PLOTLY_AVAILABLE = False
     st.warning("📊 그래프 기능을 사용하려면 'pip install plotly' 를 설치해주세요")
 
-# 페이지 설정
-st.set_page_config(
-    page_title="올리브영 상품 크롤러",
-    page_icon="🛍️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+
 )
 
 class OliveYoungScraper:

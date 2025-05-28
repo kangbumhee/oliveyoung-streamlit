@@ -6,32 +6,20 @@ st.set_page_config(  # ✅ Streamlit 관련 첫 번째 명령어여야 함
     initial_sidebar_state="expanded"
 )
 
-
-
-import subprocess
-import sys
-import asyncio
+import requests
+from bs4 import BeautifulSoup
 import pandas as pd
 import time
 import re
-from urllib.parse import quote
+from urllib.parse import quote, urljoin
 from datetime import datetime
 import json
 import os
 import io
 from PIL import Image
-import requests
 import webbrowser
 
-
 # 라이브러리 설치 확인
-try:
-    from playwright.async_api import async_playwright
-except ImportError:
-    subprocess.run([sys.executable, "-m", "pip", "install", "playwright"])
-    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
-    from playwright.async_api import async_playwright
-
 try:
     import plotly.express as px
     import plotly.graph_objects as go
@@ -40,140 +28,133 @@ except ImportError:
     PLOTLY_AVAILABLE = False
     st.warning("📊 그래프 기능을 사용하려면 'pip install plotly' 를 설치해주세요")
 
-
 class OliveYoungScraper:
     def __init__(self):
         self.base_url = "https://www.oliveyoung.co.kr/store/search/getSearchMain.do"
         self.products = []
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0'
+        })
         
-    async def scrape_products(self, search_keywords, max_pages=1, progress_callback=None):
+    def scrape_products(self, search_keywords, max_pages=1, progress_callback=None):
         """올리브영에서 여러 검색어로 상품 정보를 크롤링"""
         self.products = []
         
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-            page = await context.new_page()
+        try:
+            total_keywords = len(search_keywords)
             
-            try:
-                total_keywords = len(search_keywords)
+            for keyword_idx, keyword in enumerate(search_keywords):
+                if progress_callback:
+                    progress_callback(f"'{keyword}' 검색 중... ({keyword_idx + 1}/{total_keywords})")
                 
-                for keyword_idx, keyword in enumerate(search_keywords):
-                    if progress_callback:
-                        progress_callback(f"'{keyword}' 검색 중... ({keyword_idx + 1}/{total_keywords})")
+                for page_num in range(1, max_pages + 1):
+                    search_url = f"{self.base_url}?query={quote(keyword)}&giftYn=N&t_page=통합&t_click=검색창&t_search_name=검색&page={page_num}"
                     
-                    for page_num in range(1, max_pages + 1):
-                        search_url = f"{self.base_url}?query={quote(keyword)}&giftYn=N&t_page=통합&t_click=검색창&t_search_name=검색&page={page_num}"
+                    try:
+                        response = self.session.get(search_url, timeout=10)
+                        response.raise_for_status()
                         
-                        await page.goto(search_url, wait_until="networkidle")
-                        await asyncio.sleep(1)
-                        
-                        await self._scroll_to_load_all(page)
-                        await self._extract_products(page, keyword, page_num)
+                        soup = BeautifulSoup(response.text, 'html.parser')
+                        self._extract_products(soup, keyword, page_num)
                         
                         if progress_callback:
                             progress = (keyword_idx * max_pages + page_num) / (total_keywords * max_pages)
                             progress_callback(f"'{keyword}' {page_num}페이지 완료 - 총 {len(self.products)}개 상품", progress)
                         
-            except Exception as e:
-                if progress_callback:
-                    progress_callback(f"오류 발생: {str(e)}", 1.0)
-            finally:
-                await browser.close()
+                        # 요청 간격 조절
+                        time.sleep(1)
+                        
+                    except requests.RequestException as e:
+                        if progress_callback:
+                            progress_callback(f"'{keyword}' {page_num}페이지 오류: {str(e)}")
+                        continue
+                        
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"크롤링 중 오류 발생: {str(e)}", 1.0)
                 
         return self.products
     
-    async def scrape_selected_products(self, selected_products, progress_callback=None):
+    def scrape_selected_products(self, selected_products, progress_callback=None):
         """선택된 상품들을 새로고침"""
         updated_products = []
         
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-            page = await context.new_page()
+        try:
+            total_products = len(selected_products)
             
-            try:
-                total_products = len(selected_products)
+            for idx, selected_product in enumerate(selected_products):
+                brand = selected_product.get('브랜드', '')
+                name = selected_product.get('상품명', '')[:20] + "..." if len(selected_product.get('상품명', '')) > 20 else selected_product.get('상품명', '')
                 
-                for idx, selected_product in enumerate(selected_products):
-                    brand = selected_product.get('브랜드', '')
-                    name = selected_product.get('상품명', '')[:20] + "..." if len(selected_product.get('상품명', '')) > 20 else selected_product.get('상품명', '')
-                    
-                    if progress_callback:
-                        progress = (idx + 1) / total_products
-                        progress_callback(f"[{idx + 1}/{total_products}] {brand} - {name}", progress)
-                    
-                    product_code = selected_product.get('상품코드', '')
-                    if not product_code:
-                        selected_product['상태'] = '상품코드 없음'
-                        selected_product['업데이트시간'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        updated_products.append(selected_product)
-                        continue
-                    
-                    try:
-                        product_url = f"https://www.oliveyoung.co.kr/store/goods/getGoodsDetail.do?goodsNo={product_code}"
-                        await page.goto(product_url, wait_until="networkidle", timeout=10000)
-                        await asyncio.sleep(1)
-                        
-                        updated_product = await self._extract_product_from_detail_page(page, selected_product)
-                        
-                        if updated_product:
-                            updated_product = self._update_price_history(selected_product, updated_product)
-                            updated_product['업데이트시간'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                            updated_product['상태'] = '업데이트됨'
-                            updated_products.append(updated_product)
-                        else:
-                            selected_product['상태'] = '상품 없음'
-                            selected_product['업데이트시간'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                            updated_products.append(selected_product)
-                            
-                    except Exception as e:
-                        selected_product['상태'] = f'오류: {str(e)[:20]}'
-                        selected_product['업데이트시간'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        updated_products.append(selected_product)
-                        continue
-                            
-            except Exception as e:
                 if progress_callback:
-                    progress_callback(f"업데이트 중 오류 발생: {str(e)}", 1.0)
-            finally:
-                await browser.close()
+                    progress = (idx + 1) / total_products
+                    progress_callback(f"[{idx + 1}/{total_products}] {brand} - {name}", progress)
+                
+                product_code = selected_product.get('상품코드', '')
+                if not product_code:
+                    selected_product['상태'] = '상품코드 없음'
+                    selected_product['업데이트시간'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    updated_products.append(selected_product)
+                    continue
+                
+                try:
+                    product_url = f"https://www.oliveyoung.co.kr/store/goods/getGoodsDetail.do?goodsNo={product_code}"
+                    response = self.session.get(product_url, timeout=10)
+                    response.raise_for_status()
+                    
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    updated_product = self._extract_product_from_detail_page(soup, selected_product)
+                    
+                    if updated_product:
+                        updated_product = self._update_price_history(selected_product, updated_product)
+                        updated_product['업데이트시간'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        updated_product['상태'] = '업데이트됨'
+                        updated_products.append(updated_product)
+                    else:
+                        selected_product['상태'] = '상품 없음'
+                        selected_product['업데이트시간'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        updated_products.append(selected_product)
+                        
+                    # 요청 간격 조절
+                    time.sleep(0.5)
+                        
+                except Exception as e:
+                    selected_product['상태'] = f'오류: {str(e)[:20]}'
+                    selected_product['업데이트시간'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    updated_products.append(selected_product)
+                    continue
+                        
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"업데이트 중 오류 발생: {str(e)}", 1.0)
         
         return updated_products
     
-    async def _extract_product_from_detail_page(self, page, original_product):
+    def _extract_product_from_detail_page(self, soup, original_product):
         """상품 상세 페이지에서 정보 추출"""
         try:
-            await page.wait_for_load_state("networkidle")
-            await asyncio.sleep(2)
-            
             # 브랜드명 추출
             brand = ""
-            try:
-                brand_elem = await page.query_selector(".prd_brand a")
-                if not brand_elem:
-                    brand_elem = await page.query_selector(".prd_brand")
-                if brand_elem:
-                    brand = await brand_elem.inner_text()
-                    brand = brand.strip()
-            except:
-                pass
+            brand_elem = soup.select_one(".prd_brand a")
+            if not brand_elem:
+                brand_elem = soup.select_one(".prd_brand")
+            if brand_elem:
+                brand = brand_elem.get_text(strip=True)
             if not brand:
                 brand = original_product.get('브랜드', '')
             
             # 상품명 추출
             name = ""
-            try:
-                name_elem = await page.query_selector(".prd_name")
-                if name_elem:
-                    name = await name_elem.inner_text()
-                    name = name.strip()
-            except:
-                pass
+            name_elem = soup.select_one(".prd_name")
+            if name_elem:
+                name = name_elem.get_text(strip=True)
             if not name:
                 name = original_product.get('상품명', '')
             
@@ -181,64 +162,52 @@ class OliveYoungScraper:
             original_price = ""
             discount_price = ""
             
-            try:
-                # 할인가
-                discount_price_elem = await page.query_selector(".price .price-2 strong")
-                if discount_price_elem:
-                    discount_price_text = await discount_price_elem.inner_text()
-                    discount_price_text = discount_price_text.strip().replace(',', '')
-                    if discount_price_text.isdigit():
-                        discount_price = f"{int(discount_price_text):,}"
-                
-                # 정가
-                original_price_elem = await page.query_selector(".price .price-1 strike")
-                if original_price_elem:
-                    original_price_text = await original_price_elem.inner_text()
-                    original_price_text = original_price_text.strip().replace(',', '')
-                    if original_price_text.isdigit():
-                        original_price = f"{int(original_price_text):,}"
-                
-                # 할인가만 있는 경우
-                if discount_price and not original_price:
-                    try:
-                        price1_elem = await page.query_selector(".price .price-1")
-                        if price1_elem:
-                            price1_text = await price1_elem.inner_text()
-                            if "strike" not in await price1_elem.inner_html():
-                                numbers = re.findall(r'[\d,]+', price1_text)
-                                if numbers:
-                                    price_num = numbers[0].replace(',', '')
-                                    if price_num.isdigit():
-                                        original_price = f"{int(price_num):,}"
-                    except:
-                        pass
-                
-            except Exception as e:
-                pass
+            # 할인가
+            discount_price_elem = soup.select_one(".price .price-2 strong")
+            if discount_price_elem:
+                discount_price_text = discount_price_elem.get_text(strip=True).replace(',', '')
+                if discount_price_text.isdigit():
+                    discount_price = f"{int(discount_price_text):,}"
+            
+            # 정가
+            original_price_elem = soup.select_one(".price .price-1 strike")
+            if original_price_elem:
+                original_price_text = original_price_elem.get_text(strip=True).replace(',', '')
+                if original_price_text.isdigit():
+                    original_price = f"{int(original_price_text):,}"
+            
+            # 할인가만 있는 경우
+            if discount_price and not original_price:
+                price1_elem = soup.select_one(".price .price-1")
+                if price1_elem:
+                    price1_text = price1_elem.get_text(strip=True)
+                    if "strike" not in str(price1_elem):
+                        numbers = re.findall(r'[\d,]+', price1_text)
+                        if numbers:
+                            price_num = numbers[0].replace(',', '')
+                            if price_num.isdigit():
+                                original_price = f"{int(price_num):,}"
             
             # 대체 가격 추출 방법
             if not discount_price:
-                try:
-                    price_selectors = [
-                        ".price strong",
-                        ".price-2",
-                        ".final_price",
-                        ".sale_price",
-                        ".current_price"
-                    ]
-                    
-                    for selector in price_selectors:
-                        elem = await page.query_selector(selector)
-                        if elem:
-                            text = await elem.inner_text()
-                            numbers = re.findall(r'[\d,]+', text)
-                            if numbers:
-                                price_num = numbers[0].replace(',', '')
-                                if price_num.isdigit() and int(price_num) > 100:
-                                    discount_price = f"{int(price_num):,}"
-                                    break
-                except:
-                    pass
+                price_selectors = [
+                    ".price strong",
+                    ".price-2",
+                    ".final_price",
+                    ".sale_price",
+                    ".current_price"
+                ]
+                
+                for selector in price_selectors:
+                    elem = soup.select_one(selector)
+                    if elem:
+                        text = elem.get_text(strip=True)
+                        numbers = re.findall(r'[\d,]+', text)
+                        if numbers:
+                            price_num = numbers[0].replace(',', '')
+                            if price_num.isdigit() and int(price_num) > 100:
+                                discount_price = f"{int(price_num):,}"
+                                break
             
             # 기존 가격 정보 보존
             if not discount_price:
@@ -254,22 +223,19 @@ class OliveYoungScraper:
             
             # 이미지 URL 추출
             image_url = ""
-            try:
-                image_selectors = [
-                    ".prd_img img",
-                    ".goods_img img", 
-                    ".product_img img",
-                    ".item_img img",
-                    "img[src*='thumbnails']"
-                ]
-                for selector in image_selectors:
-                    img_elem = await page.query_selector(selector)
-                    if img_elem:
-                        image_url = await img_elem.get_attribute("src")
-                        if image_url and ("http" in image_url or image_url.startswith("//")):
-                            break
-            except:
-                pass
+            image_selectors = [
+                ".prd_img img",
+                ".goods_img img", 
+                ".product_img img",
+                ".item_img img",
+                "img[src*='thumbnails']"
+            ]
+            for selector in image_selectors:
+                img_elem = soup.select_one(selector)
+                if img_elem:
+                    image_url = img_elem.get('src', '')
+                    if image_url and ("http" in image_url or image_url.startswith("//")):
+                        break
             if not image_url:
                 image_url = original_product.get('이미지URL', '')
             
@@ -323,64 +289,51 @@ class OliveYoungScraper:
         new_product['가격히스토리'] = price_history
         return new_product
     
-    async def _scroll_to_load_all(self, page):
-        """페이지 스크롤"""
-        previous_height = 0
-        scroll_attempts = 0
-        max_attempts = 5
-        
-        while scroll_attempts < max_attempts:
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await asyncio.sleep(1)
-            
-            new_height = await page.evaluate("document.body.scrollHeight")
-            if new_height == previous_height:
-                break
-            previous_height = new_height
-            scroll_attempts += 1
-    
-    async def _extract_products(self, page, keyword, page_num):
+    def _extract_products(self, soup, keyword):
         """상품 정보 추출"""
-        await self._extract_products_to_list(page, keyword, self.products)
-    
-    async def _extract_products_to_list(self, page, keyword, product_list):
-        """상품 정보를 지정된 리스트에 추출"""
-        product_elements = await page.query_selector_all("li.flag.li_result")
+        product_elements = soup.select("li.flag.li_result")
         
         for element in product_elements:
             try:
                 product_info = {}
                 
-                brand_elem = await element.query_selector(".tx_brand")
-                product_info['브랜드'] = await brand_elem.inner_text() if brand_elem else ""
+                # 브랜드
+                brand_elem = element.select_one(".tx_brand")
+                product_info['브랜드'] = brand_elem.get_text(strip=True) if brand_elem else ""
                 
-                name_elem = await element.query_selector(".tx_name")
-                product_info['상품명'] = await name_elem.inner_text() if name_elem else ""
+                # 상품명
+                name_elem = element.select_one(".tx_name")
+                product_info['상품명'] = name_elem.get_text(strip=True) if name_elem else ""
                 
-                price_section = await element.query_selector(".prd_price")
+                # 가격 정보
+                price_section = element.select_one(".prd_price")
                 if price_section:
-                    original_price_elem = await price_section.query_selector(".tx_org .tx_num")
-                    product_info['원가'] = await original_price_elem.inner_text() if original_price_elem else ""
+                    original_price_elem = price_section.select_one(".tx_org .tx_num")
+                    product_info['원가'] = original_price_elem.get_text(strip=True) if original_price_elem else ""
                     
-                    current_price_elem = await price_section.query_selector(".tx_cur .tx_num")
-                    product_info['할인가'] = await current_price_elem.inner_text() if current_price_elem else ""
+                    current_price_elem = price_section.select_one(".tx_cur .tx_num")
+                    product_info['할인가'] = current_price_elem.get_text(strip=True) if current_price_elem else ""
                 
+                # 혜택 정보
                 benefits = []
-                benefit_elems = await element.query_selector_all(".prd_flag .icon_flag")
+                benefit_elems = element.select(".prd_flag .icon_flag")
                 for benefit_elem in benefit_elems:
-                    benefit_text = await benefit_elem.inner_text()
-                    benefits.append(benefit_text)
+                    benefit_text = benefit_elem.get_text(strip=True)
+                    if benefit_text:
+                        benefits.append(benefit_text)
                 product_info['혜택'] = ", ".join(benefits)
                 
-                img_elem = await element.query_selector(".prd_thumb img")
-                product_info['이미지URL'] = await img_elem.get_attribute("src") if img_elem else ""
+                # 이미지 URL
+                img_elem = element.select_one(".prd_thumb img")
+                product_info['이미지URL'] = img_elem.get('src', '') if img_elem else ""
                 
-                link_elem = await element.query_selector(".prd_thumb")
-                href = await link_elem.get_attribute("href") if link_elem else ""
+                # 상품 링크와 코드
+                link_elem = element.select_one(".prd_thumb")
+                href = link_elem.get('href', '') if link_elem else ""
                 if href:
                     goods_no_match = re.search(r'goodsNo=([A-Z0-9]+)', href)
                     product_info['상품코드'] = goods_no_match.group(1) if goods_no_match else ""
-                    product_info['상품URL'] = f"https://www.oliveyoung.co.kr{href}" if href.startswith('/') else href
+                    product_info['상품URL'] = urljoin("https://www.oliveyoung.co.kr", href)
                 else:
                     product_info['상품코드'] = ""
                     product_info['상품URL'] = ""
@@ -390,6 +343,7 @@ class OliveYoungScraper:
                 product_info['목표가격'] = ""
                 product_info['크롤링시간'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 
+                # 가격 히스토리 초기화
                 current_date = datetime.now().strftime('%Y-%m-%d')
                 product_info['가격히스토리'] = [{
                     '날짜': current_date,
@@ -398,7 +352,7 @@ class OliveYoungScraper:
                     '시간': datetime.now().strftime('%H:%M:%S')
                 }]
                 
-                product_list.append(product_info)
+                self.products.append(product_info)
                 
             except Exception as e:
                 continue
@@ -620,7 +574,7 @@ def create_price_history_chart(product_data):
 
 # 메인 앱
 def main():
-    st.title("🛍️ 올리브영 상품 크롤러")
+    st.title("🛍️ 올리브영 상품 크롤러 (Requests 버전)")
     st.markdown("---")
     
     # 세션 상태 초기화
@@ -663,15 +617,10 @@ def main():
                 # 크롤링 실행
                 with st.spinner("크롤링 중..."):
                     try:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        
-                        products = loop.run_until_complete(
-                            st.session_state.scraper.scrape_products(
-                                keywords, 
-                                max_pages,
-                                progress_callback=update_progress
-                            )
+                        products = st.session_state.scraper.scrape_products(
+                            keywords, 
+                            max_pages,
+                            progress_callback=update_progress
                         )
                         
                         st.session_state.products_data = products
@@ -780,6 +729,8 @@ def main():
                     image_url = product.get('이미지URL', '')
                     if image_url:
                         try:
+                            if not image_url.startswith('http'):
+                                image_url = 'https:' + image_url if image_url.startswith('//') else 'https://www.oliveyoung.co.kr' + image_url
                             st.image(image_url, width=200)
                         except:
                             st.info("이미지를 불러올 수 없습니다")
@@ -885,14 +836,9 @@ def main():
                         
                         with st.spinner("관심상품 새로고침 중..."):
                             try:
-                                loop = asyncio.new_event_loop()
-                                asyncio.set_event_loop(loop)
-                                
-                                updated_products = loop.run_until_complete(
-                                    st.session_state.scraper.scrape_selected_products(
-                                        selected_products,
-                                        progress_callback=update_progress
-                                    )
+                                updated_products = st.session_state.scraper.scrape_selected_products(
+                                    selected_products,
+                                    progress_callback=update_progress
                                 )
                                 
                                 # 업데이트된 상품들로 교체
@@ -1084,6 +1030,8 @@ def main():
                     image_url = selected_product.get('이미지URL', '')
                     if image_url:
                         try:
+                            if not image_url.startswith('http'):
+                                image_url = 'https:' + image_url if image_url.startswith('//') else 'https://www.oliveyoung.co.kr' + image_url
                             st.image(image_url, caption=selected_product.get('상품명', ''), width=250)
                         except:
                             st.info("이미지를 불러올 수 없습니다")
@@ -1133,5 +1081,8 @@ def main():
         else:
             st.info("⭐ 관심상품이 없습니다. 검색 결과에서 상품을 추가해주세요.")
 
+# 자동 데이터 로드
 if __name__ == "__main__":
+    init_session_state()
+    load_data()
     main()

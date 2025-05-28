@@ -34,12 +34,17 @@ class OliveYoungScraper:
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
-            'Cache-Control': 'max-age=0'
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+            'DNT': '1'
         })
         
     def scrape_products(self, search_keywords, max_pages=1, progress_callback=None):
@@ -57,27 +62,49 @@ class OliveYoungScraper:
                     search_url = f"{self.base_url}?query={quote(keyword)}&giftYn=N&t_page=통합&t_click=검색창&t_search_name=검색&page={page_num}"
                     
                     try:
-                        response = self.session.get(search_url, timeout=10)
-                        response.raise_for_status()
+                        if progress_callback:
+                            progress_callback(f"'{keyword}' {page_num}페이지 요청 중...")
                         
-                        soup = BeautifulSoup(response.text, 'html.parser')
-                        self._extract_products(soup, keyword, page_num)
+                        response = self.session.get(search_url, timeout=15)
                         
                         if progress_callback:
-                            progress = (keyword_idx * max_pages + page_num) / (total_keywords * max_pages)
-                            progress_callback(f"'{keyword}' {page_num}페이지 완료 - 총 {len(self.products)}개 상품", progress)
+                            progress_callback(f"응답 상태: {response.status_code}")
+                        
+                        if response.status_code == 200:
+                            soup = BeautifulSoup(response.text, 'html.parser')
+                            
+                            # 디버깅: 응답 내용 확인
+                            if progress_callback:
+                                progress_callback(f"HTML 길이: {len(response.text)} bytes")
+                            
+                            extracted_count = self._extract_products(soup, keyword, page_num)
+                            
+                            if progress_callback:
+                                progress = (keyword_idx * max_pages + page_num) / (total_keywords * max_pages)
+                                progress_callback(f"'{keyword}' {page_num}페이지: {extracted_count}개 상품 추출 - 총 {len(self.products)}개", progress)
+                        else:
+                            if progress_callback:
+                                progress_callback(f"HTTP 오류: {response.status_code} - {response.reason}")
                         
                         # 요청 간격 조절
-                        time.sleep(1)
+                        time.sleep(2)  # 2초로 증가
                         
+                    except requests.Timeout:
+                        if progress_callback:
+                            progress_callback(f"'{keyword}' {page_num}페이지 시간 초과")
+                        continue
                     except requests.RequestException as e:
                         if progress_callback:
-                            progress_callback(f"'{keyword}' {page_num}페이지 오류: {str(e)}")
+                            progress_callback(f"'{keyword}' {page_num}페이지 네트워크 오류: {str(e)}")
+                        continue
+                    except Exception as e:
+                        if progress_callback:
+                            progress_callback(f"'{keyword}' {page_num}페이지 처리 오류: {str(e)}")
                         continue
                         
         except Exception as e:
             if progress_callback:
-                progress_callback(f"크롤링 중 오류 발생: {str(e)}", 1.0)
+                progress_callback(f"크롤링 중 전체 오류: {str(e)}", 1.0)
                 
         return self.products
     
@@ -290,44 +317,125 @@ class OliveYoungScraper:
     
     def _extract_products(self, soup, keyword):
         """상품 정보 추출"""
-        product_elements = soup.select("li.flag.li_result")
+        extracted_count = 0
+        
+        # 다양한 상품 리스트 셀렉터 시도
+        product_selectors = [
+            "li.flag.li_result",
+            "li.li_result", 
+            ".prd_list li",
+            ".search_item",
+            ".item_box",
+            "[data-attr*='prd']"
+        ]
+        
+        product_elements = []
+        for selector in product_selectors:
+            elements = soup.select(selector)
+            if elements:
+                product_elements = elements
+                break
+        
+        if not product_elements:
+            # 전체 HTML에서 상품 관련 요소 찾기
+            product_elements = soup.find_all(attrs={"class": re.compile(r"(prd|product|item)")})
         
         for element in product_elements:
             try:
                 product_info = {}
                 
-                # 브랜드
-                brand_elem = element.select_one(".tx_brand")
-                product_info['브랜드'] = brand_elem.get_text(strip=True) if brand_elem else ""
+                # 브랜드 추출 - 다양한 셀렉터 시도
+                brand = ""
+                brand_selectors = [".tx_brand", ".brand", ".prd_brand", "[class*='brand']"]
+                for selector in brand_selectors:
+                    brand_elem = element.select_one(selector)
+                    if brand_elem:
+                        brand = brand_elem.get_text(strip=True)
+                        break
+                product_info['브랜드'] = brand
                 
-                # 상품명
-                name_elem = element.select_one(".tx_name")
-                product_info['상품명'] = name_elem.get_text(strip=True) if name_elem else ""
+                # 상품명 추출
+                name = ""
+                name_selectors = [".tx_name", ".name", ".prd_name", ".title", "[class*='name']", "[class*='title']"]
+                for selector in name_selectors:
+                    name_elem = element.select_one(selector)
+                    if name_elem:
+                        name = name_elem.get_text(strip=True)
+                        break
+                product_info['상품명'] = name
                 
-                # 가격 정보
-                price_section = element.select_one(".prd_price")
+                # 상품명이나 브랜드가 없으면 스킵
+                if not name and not brand:
+                    continue
+                
+                # 가격 정보 추출
+                original_price = ""
+                discount_price = ""
+                
+                # 다양한 가격 셀렉터 시도
+                price_selectors = [
+                    ".prd_price",
+                    ".price",
+                    "[class*='price']"
+                ]
+                
+                price_section = None
+                for selector in price_selectors:
+                    price_section = element.select_one(selector)
+                    if price_section:
+                        break
+                
                 if price_section:
-                    original_price_elem = price_section.select_one(".tx_org .tx_num")
-                    product_info['원가'] = original_price_elem.get_text(strip=True) if original_price_elem else ""
+                    # 원가 추출
+                    original_selectors = [".tx_org .tx_num", ".original", ".before", "strike", "[class*='original']"]
+                    for selector in original_selectors:
+                        original_elem = price_section.select_one(selector)
+                        if original_elem:
+                            original_price = original_elem.get_text(strip=True)
+                            break
                     
-                    current_price_elem = price_section.select_one(".tx_cur .tx_num")
-                    product_info['할인가'] = current_price_elem.get_text(strip=True) if current_price_elem else ""
+                    # 할인가 추출
+                    discount_selectors = [".tx_cur .tx_num", ".current", ".sale", ".final", "[class*='current']", "[class*='sale']"]
+                    for selector in discount_selectors:
+                        discount_elem = price_section.select_one(selector)
+                        if discount_elem:
+                            discount_price = discount_elem.get_text(strip=True)
+                            break
+                
+                # 가격이 없으면 텍스트에서 숫자 추출 시도
+                if not discount_price and not original_price:
+                    price_text = element.get_text()
+                    price_matches = re.findall(r'[\d,]+원?', price_text)
+                    if price_matches:
+                        discount_price = price_matches[0].replace('원', '')
+                
+                product_info['원가'] = original_price
+                product_info['할인가'] = discount_price
                 
                 # 혜택 정보
                 benefits = []
-                benefit_elems = element.select(".prd_flag .icon_flag")
-                for benefit_elem in benefit_elems:
-                    benefit_text = benefit_elem.get_text(strip=True)
-                    if benefit_text:
-                        benefits.append(benefit_text)
+                benefit_selectors = [".prd_flag .icon_flag", ".benefit", ".tag", "[class*='flag']", "[class*='benefit']"]
+                for selector in benefit_selectors:
+                    benefit_elems = element.select(selector)
+                    for benefit_elem in benefit_elems:
+                        benefit_text = benefit_elem.get_text(strip=True)
+                        if benefit_text:
+                            benefits.append(benefit_text)
                 product_info['혜택'] = ", ".join(benefits)
                 
                 # 이미지 URL
-                img_elem = element.select_one(".prd_thumb img")
-                product_info['이미지URL'] = img_elem.get('src', '') if img_elem else ""
+                image_url = ""
+                img_selectors = ["img", ".prd_thumb img", ".thumb img", "[class*='img'] img"]
+                for selector in img_selectors:
+                    img_elem = element.select_one(selector)
+                    if img_elem:
+                        image_url = img_elem.get('src', '') or img_elem.get('data-src', '')
+                        if image_url:
+                            break
+                product_info['이미지URL'] = image_url
                 
                 # 상품 링크와 코드
-                link_elem = element.select_one(".prd_thumb")
+                link_elem = element.select_one("a")
                 href = link_elem.get('href', '') if link_elem else ""
                 if href:
                     goods_no_match = re.search(r'goodsNo=([A-Z0-9]+)', href)
@@ -351,10 +459,15 @@ class OliveYoungScraper:
                     '시간': datetime.now().strftime('%H:%M:%S')
                 }]
                 
-                self.products.append(product_info)
+                # 최소한의 정보가 있을 때만 추가
+                if product_info['상품명'] or product_info['브랜드']:
+                    self.products.append(product_info)
+                    extracted_count += 1
                 
             except Exception as e:
                 continue
+        
+        return extracted_count
 
 # 세션 상태 초기화
 def init_session_state():
@@ -607,15 +720,22 @@ def main():
                 # 진행 상황 표시
                 progress_bar = st.progress(0)
                 status_text = st.empty()
+                debug_info = st.empty()
                 
                 def update_progress(message, progress=None):
                     status_text.text(message)
                     if progress is not None:
                         progress_bar.progress(progress)
+                    
+                    # 디버깅 정보 표시
+                    debug_info.info(f"🔍 디버그: {message}")
                 
                 # 크롤링 실행
                 with st.spinner("크롤링 중..."):
                     try:
+                        st.info(f"🎯 검색 키워드: {', '.join(keywords)}")
+                        st.info(f"📄 페이지 수: {max_pages}")
+                        
                         products = st.session_state.scraper.scrape_products(
                             keywords, 
                             max_pages,
@@ -627,10 +747,28 @@ def main():
                         
                         progress_bar.progress(1.0)
                         status_text.text(f"✅ 크롤링 완료! 총 {len(products)}개 상품")
-                        st.success(f"🎉 {len(products)}개 상품을 찾았습니다!")
+                        
+                        if len(products) > 0:
+                            st.success(f"🎉 {len(products)}개 상품을 찾았습니다!")
+                            
+                            # 샘플 상품 정보 표시
+                            st.subheader("📋 크롤링된 상품 샘플")
+                            sample_count = min(3, len(products))
+                            for i in range(sample_count):
+                                product = products[i]
+                                st.info(f"**{product.get('브랜드', 'N/A')}** - {product.get('상품명', 'N/A')[:50]}... | 가격: {product.get('할인가', 'N/A')} | 키워드: {product.get('검색키워드', 'N/A')}")
+                        else:
+                            st.warning("⚠️ 상품을 찾을 수 없습니다. 다른 검색어를 시도해보세요.")
+                            st.info("💡 팁: '토너', '세럼', '클렌징', '마스크' 등 구체적인 상품명을 사용해보세요.")
+                        
+                        debug_info.empty()  # 디버그 정보 제거
                         
                     except Exception as e:
                         st.error(f"❌ 크롤링 오류: {str(e)}")
+                        st.info("🔧 문제 해결 방법:")
+                        st.info("1. 잠시 후 다시 시도해보세요")
+                        st.info("2. 다른 검색어를 사용해보세요")
+                        st.info("3. 페이지 수를 줄여보세요")
             else:
                 st.warning("⚠️ 검색어를 입력해주세요")
         
@@ -662,6 +800,38 @@ def main():
                                  p.get('목표가격', '').replace(',', '').isdigit() and
                                  int(p.get('할인가', '').replace(',', '')) <= int(p.get('목표가격', '').replace(',', ''))])
             st.metric("목표가격 달성", f"{target_achieved}개")
+        
+        # 디버그 섹션
+        st.markdown("---")
+        st.subheader("🔧 테스트")
+        if st.button("🧪 연결 테스트", use_container_width=True):
+            try:
+                test_url = "https://www.oliveyoung.co.kr"
+                response = requests.get(test_url, timeout=10)
+                if response.status_code == 200:
+                    st.success(f"✅ 올리브영 연결 성공 ({response.status_code})")
+                else:
+                    st.warning(f"⚠️ 응답 코드: {response.status_code}")
+            except Exception as e:
+                st.error(f"❌ 연결 실패: {str(e)}")
+        
+        if st.button("🔍 단일 검색 테스트", use_container_width=True):
+            test_keyword = "토너"
+            progress_text = st.empty()
+            
+            def test_progress(msg, prog=None):
+                progress_text.text(msg)
+            
+            try:
+                scraper = OliveYoungScraper()
+                results = scraper.scrape_products([test_keyword], 1, test_progress)
+                st.info(f"테스트 결과: {len(results)}개 상품 발견")
+                if results:
+                    st.json(results[0])  # 첫 번째 상품 정보 표시
+            except Exception as e:
+                st.error(f"테스트 실패: {str(e)}")
+            finally:
+                progress_text.empty()
     
     # 메인 영역
     tab1, tab2 = st.tabs(["🔍 검색 결과", "⭐ 관심 상품"])

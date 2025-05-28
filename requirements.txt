@@ -1,6 +1,7 @@
 streamlit
-playwright
+requests
+beautifulsoup4
 pandas
 openpyxl
-pillow
-requests
+plotly
+lxml

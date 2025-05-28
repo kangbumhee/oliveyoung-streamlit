@@ -41,8 +41,6 @@ except ImportError:
     st.warning("📊 그래프 기능을 사용하려면 'pip install plotly' 를 설치해주세요")
 
 
-)
-
 class OliveYoungScraper:
     def __init__(self):
         self.base_url = "https://www.oliveyoung.co.kr/store/search/getSearchMain.do"
